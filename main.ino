@@ -4,11 +4,17 @@
 #include <Adafruit_MPU6050.h>
 #include <Adafruit_Sensor.h>
 #include <Wire.h>
+#include <stdio.h>
 Adafruit_MPU6050 mpu;
 
 
 //macros
 #define LED_PIN 23 
+#if CONFIG_FREERTOS_UNICORE
+#define ARDUINO_RUNNING_CORE 0
+#else
+#define ARDUINO_RUNNING_CORE 1
+#endif
 
 //MOTOR PINS 
 int ena = 14;
@@ -22,27 +28,46 @@ int lower_speed = 200;
 
 int LED_STATE = false;
 
+// Motor parameters
+int base_speed = 200; // Base motor speed
+int min_speed = 180; // Minimum motor speed
+int max_speed = 255; // Maximum motor speed
+
+void keepbalance(void* pvParameters );
+
+void bluetooth_input(void* pvParameters );
+
+
+//remember last motor state: false=LOW, true=HIGH
 void motor_A_forward(int speed){
+  if(digitalRead(in1) == HIGH){
     digitalWrite(in1,LOW);
     digitalWrite(in2,HIGH);
-    analogWrite(ena, speed);
+  }
+  analogWrite(ena, speed);
 }
 
 void motor_B_forward(int speed){
-  digitalWrite(in3,LOW);
-  digitalWrite(in4,HIGH);
+  if(digitalRead(in3) == HIGH){
+    digitalWrite(in3,LOW);
+    digitalWrite(in4,HIGH);
+  }
   analogWrite(enb, speed);
 }
 
 void motor_A_backward(int speed){
+  if(digitalRead(in1) == LOW){
     digitalWrite(in1,HIGH);
     digitalWrite(in2,LOW);
-    analogWrite(ena, speed);
+  }
+  analogWrite(ena, speed);
 }
 
 void motor_B_backward(int speed){
-  digitalWrite(in3,HIGH);
-  digitalWrite(in4,LOW);
+  if(digitalRead(in3) == LOW){
+    digitalWrite(in3,HIGH);
+    digitalWrite(in4,LOW);
+  }
   analogWrite(enb, speed);
 }
 
@@ -52,6 +77,43 @@ void stop_motors(){
   digitalWrite(in3,LOW);
   digitalWrite(in4,LOW);
 }
+
+// Define PID gains
+float Kp = 5.0;   // Proportional gain
+float Ki = 0.05;  // Integral gain
+float Kd = 0.01;  // Derivative gain
+
+// Define variables for PID control
+float previous_error = 0;
+float integral = 0;
+// Function to calculate PID control signal
+int calculate_pid(float error) {
+    // Calculate proportional error
+    float proportional_error = error * Kp;
+
+    // Calculate integral error
+    integral += error;
+    float integral_error = integral * Ki;
+
+    // Calculate derivative error
+    float derivative_error = (error - previous_error) * Kd;
+    previous_error = error;
+
+    // Calculate control signal
+    float control_signal = proportional_error + integral_error + derivative_error;
+
+    // Convert control signal to motor speed
+    int motor_speed = min_speed + int(abs(control_signal) * (max_speed - min_speed) / 14.0); // 14 is the range of your acceleration values
+    // Ensure motor speed is within limits
+    if (motor_speed < min_speed) {
+        motor_speed = min_speed;
+    } else if (motor_speed > max_speed) {
+        motor_speed = max_speed;
+    }
+
+    return motor_speed;
+}
+
 
 void setup() {
   Serial.begin(9600);      // make sure your Serial Monitor is also set at this baud rate.
@@ -92,16 +154,12 @@ void setup() {
   Serial.print("Gyro range set to: ");
   switch (mpu.getGyroRange()) {
   case MPU6050_RANGE_250_DEG:
-    Serial.println("+- 250 deg/s");
     break;
   case MPU6050_RANGE_500_DEG:
-    Serial.println("+- 500 deg/s");
     break;
   case MPU6050_RANGE_1000_DEG:
-    Serial.println("+- 1000 deg/s");
     break;
   case MPU6050_RANGE_2000_DEG:
-    Serial.println("+- 2000 deg/s");
     break;
   }
 
@@ -109,154 +167,126 @@ void setup() {
   Serial.print("Filter bandwidth set to: ");
   switch (mpu.getFilterBandwidth()) {
   case MPU6050_BAND_260_HZ:
-    Serial.println("260 Hz");
     break;
   case MPU6050_BAND_184_HZ:
-    Serial.println("184 Hz");
     break;
   case MPU6050_BAND_94_HZ:
-    Serial.println("94 Hz");
     break;
   case MPU6050_BAND_44_HZ:
-    Serial.println("44 Hz");
     break;
   case MPU6050_BAND_21_HZ:
-    Serial.println("21 Hz");
     break;
   case MPU6050_BAND_10_HZ:
-    Serial.println("10 Hz");
     break;
   case MPU6050_BAND_5_HZ:
-    Serial.println("5 Hz");
     break;
   }
+  uint32_t variable = 1000;
+  // Set up two tasks to run independently.
+  // ARFGS: function name, name for humans, the stack size,  Task parameter, priority - higher-better, Task 
+  xTaskCreate(
+  keep_balance
+  ,  "Task for keeping the robot in equilibium" // A name just for humans
+  ,  4096        // The stack size can be checked by calling `uxHighWaterMark = uxTaskGetStackHighWaterMark(NULL);`
+  ,  (void*) &variable // Task parameter which can modify the task behavior. This must be passed as pointer to void.
+  ,  2  // Priority
+  ,  NULL // Task handle is not used here - simply pass NULL
+  );
+  // xTaskCreate(
+  // taskFunction2
+  // ,  "For Controlling robot with bluetooth" // A name just for humans
+  // ,  4096        // The stack size can be checked by calling `uxHighWaterMark = uxTaskGetStackHighWaterMark(NULL);`
+  // ,  (void*) &variable // Task parameter which can modify the task behavior. This must be passed as pointer to void.
+  // ,  2  // Priority
+  // ,  NULL // Task handle is not used here - simply pass NULL
+  // );
 }
 
-// Constants for PID control
-float Kp = 10; // Proportional gain
-float Ki = 0.1; // Integral gain
-float Kd = 0.01; // Derivative gain
-// Variables for PID control
-float previous_error = 0;
-float integral = 0;
-// Motor parameters
-int base_speed = 200; // Base motor speed
-int min_speed = 180; // Minimum motor speed
-int max_speed = 255; // Maximum motor speed
 
 void loop() {
-  Dabble.processInput();             //this function is used to refresh data obtained from smartphone.Hence calling this function is mandatory in order to get data properly from your mobile.
 
-  sensors_event_t a, g, temp;
-  mpu.getEvent(&a, &g, &temp);
+}
 
-  int gyro_reading = a.acceleration.y;
-  // Calculate deviation from desired position (0 degrees)
-  float deviation = 0 - gyro_reading;
 
-  // Calculate proportional error
-  float proportional_error = deviation * Kp;
+void keep_balance(void* pvParameters ){
+    uint32_t variable = *((uint32_t*)pvParameters);
+    for(;;){
+      sensors_event_t a, g, temp;
+      mpu.getEvent(&a, &g, &temp);
 
-  // Calculate integral error
-  integral = integral + deviation;
-  float integral_error = integral * Ki;
+      float gyro_reading = a.acceleration.y;
+      float error = -gyro_reading;  // Reverse the sign here
+      // Calculate PID control signal
+      int motor_speed = calculate_pid(error);
 
-  // Calculate derivative error
-  float derivative_error = (deviation - previous_error) * Kd;
-  previous_error = deviation;
+      if (motor_speed < min_speed) {
+        motor_speed = min_speed;
+      } else if (motor_speed > max_speed) {
+        motor_speed = max_speed;
+      }
+      Serial.print(gyro_reading);
+      Serial.println();
+      if (gyro_reading < -0.2 && gyro_reading > -8) {
+        motor_A_forward(motor_speed);
+        motor_B_forward(motor_speed);
+        printf("%d, Moving forward, speed %d\n", gyro_reading, motor_speed);
+        Terminal.print("Moving forward, speed");
 
-  // Calculate control signal
-  float control_signal = proportional_error + integral_error + derivative_error;
+      } else if (gyro_reading > 0.2 && gyro_reading < 8) {
+        motor_A_backward(motor_speed);
+        motor_B_backward(motor_speed); 
+        printf("%d, Moving Backward, speed %d\n", gyro_reading, motor_speed);
+        Terminal.print("Moving Backward, speed");
+      } else {
+        stop_motors();
+      }
+    }
+}
 
-  // Calculate motor speed
-  int motor_speed = base_speed + int(control_signal);
-  if (motor_speed < min_speed) {
-    motor_speed = min_speed;
-  } else if (motor_speed > max_speed) {
-    motor_speed = max_speed;
-  }
-  Serial.print(gyro_reading);
-  Serial.println();
-  if (gyro_reading < -0.2 && gyro_reading > -8) {
-    motor_A_forward(motor_speed);
-    motor_B_forward(motor_speed);
-    Serial.print("Moving forward, speed ");
-    Serial.print(motor_speed);
-  } else if (gyro_reading > 0.2 && gyro_reading < 8) {
-    motor_A_backward(motor_speed);
-    motor_B_backward(motor_speed); 
-    Serial.print("Moving backward, speed ");
-    Serial.print(motor_speed); 
-  } else {
-    stop_motors();
-  }
-  Serial.println();
+void bluetooth_input(void* pvParameters ){
+    (void) pvParameters;
+    for(;;){
+        Dabble.processInput();             //this function is used to refresh data obtained from smartphone.Hence calling this function is mandatory in order to get data properly from your mobile.
+      if (GamePad.isUpPressed()){
+        Serial.print("Up");
+      }
 
-  if (GamePad.isUpPressed())
-  {
-    Serial.print("Up");
-  }
+      if (GamePad.isDownPressed()){
+        Serial.print("Down");
+      }
 
-  if (GamePad.isDownPressed())
-  {
-    Serial.print("Down");
-  }
+      if (GamePad.isLeftPressed()){
+        Serial.print("Left");
+      }
 
-  if (GamePad.isLeftPressed())
-  {
-    Serial.print("Left");
-  }
+      if (GamePad.isRightPressed()){
+        Serial.print("Right");
+      }
 
-  if (GamePad.isRightPressed())
-  {
-    Serial.print("Right");
-  }
+      if (GamePad.isSquarePressed()){
+        Serial.print("Square");
+      }
 
-  if (GamePad.isSquarePressed())
-  {
-    Serial.print("Square");
-  }
+      if (GamePad.isCirclePressed()){
+        Serial.print("Circle");
+        
+      }
 
-  if (GamePad.isCirclePressed())
-  {
-    Serial.print("Circle");
-    
-  }
+      if (GamePad.isCrossPressed()){
 
-  if (GamePad.isCrossPressed())
-  {
+      }
 
-  }
+      if (GamePad.isTrianglePressed()){
+        Serial.print("Triangle");
+      }
 
-  if (GamePad.isTrianglePressed())
-  {
-    Serial.print("Triangle");
-  }
+      if (GamePad.isStartPressed()){
+        Serial.print("Start");
+      }
 
-  if (GamePad.isStartPressed())
-  {
-    Serial.print("Start");
-  }
+      if(GamePad.isSelectPressed()){
+        Serial.print("Select");
+      }
 
-  if (GamePad.isSelectPressed())
-  {
-    Serial.print("Select");
-  }
-
-  // int a = GamePad.getAngle();
-  // Serial.print("Angle: ");
-  // Serial.print(a);
-  // Serial.print('\t');
-  // int b = GamePad.getRadius();
-  // Serial.print("Radius: ");
-  // Serial.print(b);
-  // Serial.print('\t');
-  // float c = GamePad.getXaxisData();
-  // Serial.print("x_axis: ");
-  // Serial.print(c);
-  // Serial.print('\t');
-  // float d = GamePad.getYaxisData();
-  // Serial.print("y_axis: ");
-  // Serial.println(d);
-  // Serial.println();
+    }
 }
