@@ -114,6 +114,19 @@ int calculate_pid(float error) {
     return motor_speed;
 }
 
+int mapValue(int y) {
+    y = abs(y);
+    // Ensure y is within the range of 0 to 7
+    if (y < 0) {
+        y = 0;
+    } else if (y > 7) {
+        y = 7;
+    }
+
+    // Map y from the range [0, 7] to the range [150, 255]
+    return 150 + (y * (255 - 150) / 7);
+}
+
 
 void setup() {
   Serial.begin(9600);      // make sure your Serial Monitor is also set at this baud rate.
@@ -217,25 +230,25 @@ void keep_balance(void* pvParameters ){
       float gyro_reading = a.acceleration.y;
       float error = -gyro_reading;  // Reverse the sign here
       // Calculate PID control signal
-      int motor_speed = calculate_pid(error);
+      //int motor_speed = calculate_pid(error);
+      int motor_speed = mapValue(gyro_reading);
 
       if (motor_speed < min_speed) {
         motor_speed = min_speed;
       } else if (motor_speed > max_speed) {
         motor_speed = max_speed;
       }
-      Serial.print(gyro_reading);
-      Serial.println();
+
       if (gyro_reading < -0.2 && gyro_reading > -8) {
         motor_A_forward(motor_speed);
         motor_B_forward(motor_speed);
-        printf("%d, Moving forward, speed %d\n", gyro_reading, motor_speed);
+        printf("%f, Moving forward, speed %d\n", gyro_reading, motor_speed);
         Terminal.print("Moving forward, speed");
 
       } else if (gyro_reading > 0.2 && gyro_reading < 8) {
         motor_A_backward(motor_speed);
         motor_B_backward(motor_speed); 
-        printf("%d, Moving Backward, speed %d\n", gyro_reading, motor_speed);
+        printf("%f, Moving Backward, speed %d\n", gyro_reading, motor_speed);
         Terminal.print("Moving Backward, speed");
       } else {
         stop_motors();
