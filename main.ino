@@ -26,7 +26,7 @@ Adafruit_MPU6050 mpu;
 //PID setup
 double Setpoint, Input, Output;
 //Specify the links and initial tuning parameters
-double Kp=1, Ki=1, Kd=1;
+double Kp=0.5, Ki=1, Kd=1;
 PID myPID(&Input, &Output, &Setpoint, Kp, Ki, Kd, DIRECT);
 
 //MOTOR PINS 
@@ -38,8 +38,8 @@ int in4 = 33;
 int enb = 32;
 
 // Motor parameters
-int min_speed = 90; // Minimum motor speed
-int max_speed = 255; // Maximum motor speed
+int min_speed = 100; // Minimum motor speed
+int max_speed = 230; // Maximum motor speed
 
 void keep_balance(void* pvParameters );
 
@@ -48,34 +48,34 @@ void bluetooth_input(void* pvParameters );
 
 //remember last motor state: false=LOW, true=HIGH
 void motor_A_forward(int speed){
-  if(digitalRead(in1) == HIGH){
+  //if(digitalRead(in1) == HIGH){
     digitalWrite(in1,LOW);
     digitalWrite(in2,HIGH);
-  }
+  //}
   analogWrite(ena, speed);
 }
 
 void motor_B_forward(int speed){
-  if(digitalRead(in3) == HIGH){
+  //if(digitalRead(in3) == HIGH){
     digitalWrite(in3,LOW);
     digitalWrite(in4,HIGH);
-  }
+  //}
   analogWrite(enb, speed);
 }
 
 void motor_A_backward(int speed){
-  if(digitalRead(in1) == LOW){
+  //if(digitalRead(in1) == LOW){
     digitalWrite(in1,HIGH);
     digitalWrite(in2,LOW);
-  }
+  //}
   analogWrite(ena, speed);
 }
 
 void motor_B_backward(int speed){
-  if(digitalRead(in3) == LOW){
+  //if(digitalRead(in3) == LOW){
     digitalWrite(in3,HIGH);
     digitalWrite(in4,LOW);
-  }
+  //}
   analogWrite(enb, speed);
 }
 
@@ -227,10 +227,18 @@ void keep_balance(void* pvParameters ){
     unsigned long pressedTime  = 0;
     unsigned long releasedTime = 0;
     uint32_t variable = *((uint32_t*)pvParameters);
-    float action_point=0.3;
-    float stop_angle=8.0;
+    float action_point=1.5;
+    float stop_angle=6.0;
     int motor_speed = 0;
+    float last_y = 0.0;
+    float gyro_reading = 0.0;
+    int delay_s = 10;
+    int iterator = 0;
     for(;;){
+      iterator++;
+      if(iterator % 5 == 0){
+        iterator = 0;
+      }
       // read the state of the switch/button:
       currentState = digitalRead(BUTTON_PIN);
       if (lastState == HIGH && currentState == LOW)       // button is pressed
@@ -245,39 +253,46 @@ void keep_balance(void* pvParameters ){
       }
       lastState = currentState;
       
-
       sensors_event_t a, g, temp;
       mpu.getEvent(&a, &g, &temp);
-
-      float gyro_reading = a.acceleration.y;
+      last_y = gyro_reading;
+      gyro_reading = a.acceleration.y;
+      
 
       //motor_speed = mapValue(gyro_reading);
       // Compute PID output
       Input = scale_input(a.acceleration.y);
       myPID.Compute();
-      motor_speed = 20 + (abs(128-Output));
+      motor_speed = (abs(128-Output));
 
       if (motor_speed < min_speed) {
         motor_speed = min_speed;
       } else if (motor_speed > max_speed) {
         motor_speed = max_speed;
       }
-      if (robot_do_balance && gyro_reading < -action_point && gyro_reading > -stop_angle){
+      
+      float diff = abs(gyro_reading) - abs(last_y);
+      if (iterator % 2 == 0 && robot_do_balance && gyro_reading < -action_point && gyro_reading > -stop_angle){    
         motor_A_forward(motor_speed);
         motor_B_forward(motor_speed);
-        printf("%f, Forw, speed %d, Output: %f\n", gyro_reading, motor_speed, Output);
+        
+        printf("%f, Forw, speed %d, Output: %f, Diff: %f\n", gyro_reading, motor_speed, Output, diff);
         Terminal.print(" Forw, speed");
         Terminal.print(motor_speed);
 
-      } else if (robot_do_balance && gyro_reading > action_point && gyro_reading < stop_angle) {
+      } else if (iterator % 2 == 0 && robot_do_balance && gyro_reading > action_point && gyro_reading < stop_angle) {
         motor_A_backward(motor_speed);
         motor_B_backward(motor_speed); 
-        printf("%f, Forw, speed %d, Output: %f\n", gyro_reading, motor_speed, Output);
+        printf("%f, Backw, speed %d, Output: %f, Diff: %f\n", gyro_reading, motor_speed, Output, diff);
         Terminal.print("Backw, speed");
         Terminal.print(motor_speed);
       } else {
         stop_motors();
       }
+      if (abs(gyro_reading) < 2,5 &&  diff < - 0.2){
+        stop_motors();
+      }
+
     }
 }
 
