@@ -94,19 +94,6 @@ void stop_motors(){
   }
 }
 
-int mapValue(float y) {
-    // Ensure y is within the range of 0 to 7
-    if (y < 0.0) {
-        y = 0.0;
-    } else if (y > 7.0) {
-        y = 7.0;
-    }
-
-    // Map y from the range [0, 7] to the range [150, 255]
-    return 50 + int(y * ((255 - 50) / 7.0));
-}
-
-
 void setup() {
   Serial.begin(9600);      // make sure your Serial Monitor is also set at this baud rate.
   Dabble.begin("Samo ESP");       //set bluetooth name of your device
@@ -227,16 +214,15 @@ void keep_balance(void* pvParameters ){
     unsigned long pressedTime  = 0;
     unsigned long releasedTime = 0;
     uint32_t variable = *((uint32_t*)pvParameters);
-    float action_point=1.5;
+    float action_point=1.3;
     float stop_angle=6.0;
     int motor_speed = 0;
     float last_y = 0.0;
     float gyro_reading = 0.0;
-    int delay_s = 10;
     int iterator = 0;
     for(;;){
       iterator++;
-      if(iterator % 5 == 0){
+      if(iterator % 20 == 0){
         iterator = 0;
       }
       // read the state of the switch/button:
@@ -259,7 +245,6 @@ void keep_balance(void* pvParameters ){
       gyro_reading = a.acceleration.y;
       
 
-      //motor_speed = mapValue(gyro_reading);
       // Compute PID output
       Input = scale_input(a.acceleration.y);
       myPID.Compute();
@@ -272,24 +257,24 @@ void keep_balance(void* pvParameters ){
       }
       
       float diff = abs(gyro_reading) - abs(last_y);
-      if (iterator % 2 == 0 && robot_do_balance && gyro_reading < -action_point && gyro_reading > -stop_angle){    
+      if (iterator % 4 == 0 && robot_do_balance && gyro_reading < -action_point && gyro_reading > -stop_angle){    
         motor_A_forward(motor_speed);
         motor_B_forward(motor_speed);
         
         printf("%f, Forw, speed %d, Output: %f, Diff: %f\n", gyro_reading, motor_speed, Output, diff);
         Terminal.print(" Forw, speed");
         Terminal.print(motor_speed);
-
-      } else if (iterator % 2 == 0 && robot_do_balance && gyro_reading > action_point && gyro_reading < stop_angle) {
+      } else if (iterator % 4 == 0 && robot_do_balance && gyro_reading > action_point && gyro_reading < stop_angle) {
         motor_A_backward(motor_speed);
         motor_B_backward(motor_speed); 
+
         printf("%f, Backw, speed %d, Output: %f, Diff: %f\n", gyro_reading, motor_speed, Output, diff);
         Terminal.print("Backw, speed");
         Terminal.print(motor_speed);
       } else {
         stop_motors();
       }
-      if (abs(gyro_reading) < 2,5 &&  diff < - 0.2){
+      if (abs(gyro_reading) < 2,5 &&  diff < -0.2){
         stop_motors();
       }
 
