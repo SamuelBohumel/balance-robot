@@ -26,7 +26,7 @@ Adafruit_MPU6050 mpu;
 //PID setup
 double Setpoint, Input, Output;
 //Specify the links and initial tuning parameters
-double Kp=0.5, Ki=1, Kd=1;
+double Kp=1, Ki=1, Kd=1;
 PID myPID(&Input, &Output, &Setpoint, Kp, Ki, Kd, DIRECT);
 
 //MOTOR PINS 
@@ -38,7 +38,7 @@ int in4 = 33;
 int enb = 32;
 
 // Motor parameters
-int min_speed = 100; // Minimum motor speed
+int min_speed = 130; // Minimum motor speed
 int max_speed = 230; // Maximum motor speed
 
 void keep_balance(void* pvParameters );
@@ -195,7 +195,7 @@ void loop() {
 int scale_input(float y_acc){
   int scaled = 0;
 
-  scaled = 128 + (y_acc* (128 / 12));
+  scaled = 128 + (y_acc* (128 / 10));
 
   if(scaled < 0){
     scaled = 0;
@@ -221,6 +221,7 @@ void keep_balance(void* pvParameters ){
     float gyro_reading = 0.0;
     int iterator = 0;
     for(;;){
+      delay(5);
       iterator++;
       if(iterator % 20 == 0){
         iterator = 0;
@@ -257,14 +258,15 @@ void keep_balance(void* pvParameters ){
       }
       
       float diff = abs(gyro_reading) - abs(last_y);
-      if (iterator % 4 == 0 && robot_do_balance && gyro_reading < -action_point && gyro_reading > -stop_angle){    
+      if (iterator % 2 == 0 && robot_do_balance && gyro_reading < -action_point && gyro_reading > -stop_angle){    
         motor_A_forward(motor_speed);
         motor_B_forward(motor_speed);
         
         printf("%f, Forw, speed %d, Output: %f, Diff: %f\n", gyro_reading, motor_speed, Output, diff);
         Terminal.print(" Forw, speed");
         Terminal.print(motor_speed);
-      } else if (iterator % 4 == 0 && robot_do_balance && gyro_reading > action_point && gyro_reading < stop_angle) {
+      } 
+      if (iterator % 2 == 0 && robot_do_balance && gyro_reading > action_point && gyro_reading < stop_angle) {
         motor_A_backward(motor_speed);
         motor_B_backward(motor_speed); 
 
@@ -275,7 +277,7 @@ void keep_balance(void* pvParameters ){
         stop_motors();
       }
       if (abs(gyro_reading) < 2,5 &&  diff < -0.2){
-        stop_motors();
+        //stop_motors();
       }
 
     }
