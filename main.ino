@@ -1,7 +1,6 @@
 //Bluetooth
 #include <DabbleESP32.h>
-#include "PIDController.h"
-#include <PID_v1.h>
+#include "PID_v1.h"
 
 
 //Gyroscope
@@ -24,10 +23,11 @@ Adafruit_MPU6050 mpu;
 #endif
 
 //PID setup
-double Setpoint, Input, Output;
+double Setpoint=0, Input=0, Output=0;
 //Specify the links and initial tuning parameters
-double Kp=25, Ki=10, Kd=10;
+double Kp=2 , Ki=2, Kd=1;
 PID myPID(&Input, &Output, &Setpoint, Kp, Ki, Kd, DIRECT);
+//PIDController pid(Kp, Ki,  Kd, 0);
 
 //MOTOR PINS 
 int ena = 14;
@@ -158,7 +158,7 @@ void setup() {
   ,  "Balancing" // A name just for humans
   ,  8192        // The stack size can be checked by calling `uxHighWaterMark = uxTaskGetStackHighWaterMark(NULL);`
   ,  (void*) &variable // Task parameter which can modify the task behavior. This must be passed as pointer to void.
-  ,  2  // Priority
+  ,  1  // Priority
   ,  NULL // Task handle is not used here - simply pass NULL
   );
   xTaskCreate(
@@ -180,6 +180,7 @@ int motor_speed = 0;
 bool robot_do_balance = false;
 float action_point=1.2;
 float stop_angle=6.0;
+
 void keep_balance(void* pvParameters ){
     //for button
     int lastState = HIGH;  // the previous state from the input pin
@@ -187,7 +188,7 @@ void keep_balance(void* pvParameters ){
     unsigned long pressedTime  = 0;
     unsigned long releasedTime = 0;
     uint32_t variable = *((uint32_t*)pvParameters);
-
+    int sleep_t = 0;
     float last_y = 0.0;
     float offset = 0.1; //deviation from perfect water level
     for(;;){
@@ -208,8 +209,12 @@ void keep_balance(void* pvParameters ){
       mpu.getEvent(&a, &g, &temp);  
       // Compute PID output
       Input = a.acceleration.y;
+      gyro_reading = a.acceleration.y;
       myPID.Compute();
       motor_speed = Output;
+      if(0.2 > gyro_reading && gyro_reading > -0.2){
+        //pid.reinitialize();
+      }
     }
 }
 
@@ -217,7 +222,7 @@ void drive_motors(void* pvParameters ){
   int sleep_t = 0;
   for(;;){
       if (motor_speed < min_speed && motor_speed != 0) {
-        sleep_t = round(min_speed / motor_speed * 10);
+        sleep_t = round((min_speed / motor_speed) * 10);
         motor_speed = min_speed;
         
       } else if (motor_speed > max_speed) {
