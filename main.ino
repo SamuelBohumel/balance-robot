@@ -26,7 +26,7 @@ Adafruit_MPU6050 mpu;
 //PID setup
 double Setpoint, Input, Output;
 //Specify the links and initial tuning parameters
-double Kp=20, Ki=10, Kd=5;
+double Kp=25, Ki=10, Kd=10;
 PID myPID(&Input, &Output, &Setpoint, Kp, Ki, Kd, DIRECT);
 
 //MOTOR PINS 
@@ -155,59 +155,42 @@ void setup() {
   // ARFGS: function name, name for humans, the stack size,  Task parameter, priority - higher-better, Task 
   xTaskCreate(
   keep_balance
-  ,  "Task for keeping the robot in equilibium" // A name just for humans
-  ,  4096        // The stack size can be checked by calling `uxHighWaterMark = uxTaskGetStackHighWaterMark(NULL);`
+  ,  "Balancing" // A name just for humans
+  ,  8192        // The stack size can be checked by calling `uxHighWaterMark = uxTaskGetStackHighWaterMark(NULL);`
   ,  (void*) &variable // Task parameter which can modify the task behavior. This must be passed as pointer to void.
-  ,  1  // Priority
+  ,  2  // Priority
   ,  NULL // Task handle is not used here - simply pass NULL
   );
-  // xTaskCreate(
-  // bluetooth_input
-  // ,  "For Controlling robot with bluetooth" // A name just for humans
-  // ,  4096        // The stack size can be checked by calling `uxHighWaterMark = uxTaskGetStackHighWaterMark(NULL);`
-  // ,  (void*) &variable // Task parameter which can modify the task behavior. This must be passed as pointer to void.
-  // ,  1  // Priority
-  // ,  NULL // Task handle is not used here - simply pass NULL
-  // );
+  xTaskCreate(
+  drive_motors
+  ,  "Motor_drive" // A name just for humans
+  ,  8192        // The stack size can be checked by calling `uxHighWaterMark = uxTaskGetStackHighWaterMark(NULL);`
+  ,  (void*) &variable // Task parameter which can modify the task behavior. This must be passed as pointer to void.
+  ,  2  // Priority
+  ,  NULL // Task handle is not used here - simply pass NULL
+  );
 }
 
 void loop() {
 
 }
 
-//transer -10:10 to 0:255 for PID controller 
-int scale_input(float y_acc){
-  int scaled = 0;
-
-  scaled = 128 + (y_acc* (128 / 10));
-
-  if(scaled < 0){
-    scaled = 0;
-  }
-  if(scaled > 255){
-    scaled = 255;
-  }
-  return scaled;
-}
-
+float gyro_reading = 0.0;
+int motor_speed = 0;
+bool robot_do_balance = false;
+float action_point=1.2;
+float stop_angle=6.0;
 void keep_balance(void* pvParameters ){
-    bool robot_do_balance = false;
     //for button
     int lastState = HIGH;  // the previous state from the input pin
     int currentState = HIGH;     // the current reading from the input pin
     unsigned long pressedTime  = 0;
     unsigned long releasedTime = 0;
     uint32_t variable = *((uint32_t*)pvParameters);
-    float action_point=0.6;
-    float stop_angle=6.0;
-    int motor_speed = 0;
+
     float last_y = 0.0;
-    float gyro_reading = 0.0;
-    int iterator = 0;
     float offset = 0.1; //deviation from perfect water level
     for(;;){
-      delay(0);
-      // read the state of the switch/button:
       currentState = digitalRead(BUTTON_PIN);
       if (lastState == HIGH && currentState == LOW)       // button is pressed
         pressedTime = millis();
@@ -222,44 +205,50 @@ void keep_balance(void* pvParameters ){
       lastState = currentState;
       
       sensors_event_t a, g, temp;
-      mpu.getEvent(&a, &g, &temp);
-      last_y = gyro_reading;
-      gyro_reading = a.acceleration.y;
-      
-
+      mpu.getEvent(&a, &g, &temp);  
       // Compute PID output
-      Input = abs(a.acceleration.y+offset);
+      Input = a.acceleration.y;
       myPID.Compute();
       motor_speed = Output;
+    }
+}
 
-      if (motor_speed < min_speed) {
+void drive_motors(void* pvParameters ){
+  int sleep_t = 0;
+  for(;;){
+      if (motor_speed < min_speed && motor_speed != 0) {
+        sleep_t = round(min_speed / motor_speed * 10);
         motor_speed = min_speed;
+        
       } else if (motor_speed > max_speed) {
         motor_speed = max_speed;
+        sleep_t = 0;
       }
-      
-      float diff = abs(gyro_reading) - abs(last_y);
-      if (robot_do_balance && gyro_reading > action_point && gyro_reading < stop_angle) {
-        motor_A_backward(motor_speed);
-        motor_B_backward(motor_speed); 
-
-        printf("%f, Backw, speed %d, Output: %f, Diff: %f\n", gyro_reading, motor_speed, Output, diff);
-        Terminal.print("Backw, speed");
-        Terminal.print(motor_speed);
+      else{
+        sleep_t = 0;
       }
-      else if (robot_do_balance && gyro_reading < -action_point && gyro_reading > -stop_angle){    
-        motor_A_forward(motor_speed);
-        motor_B_forward(motor_speed);
-        
-        printf("%f, Forw, speed %d, Output: %f, Diff: %f\n", gyro_reading, motor_speed, Output, diff);
-        Terminal.print(" Forw, speed");
-        Terminal.print(motor_speed);
-      } 
-      else {
-        stop_motors();
-      }
-
+    if (robot_do_balance && gyro_reading > action_point && gyro_reading < stop_angle) {
+      delay(sleep_t);
+      motor_A_backward(motor_speed);
+      motor_B_backward(motor_speed); 
+      delay(sleep_t);
+      printf("%f, Backw, speed %d, Output: %f\n", gyro_reading, motor_speed, Output);
+      Terminal.print("Backw, speed");
+      Terminal.print(motor_speed);
     }
+    else if (robot_do_balance && gyro_reading < -action_point && gyro_reading > -stop_angle){ 
+      delay(sleep_t);  
+      motor_A_forward(motor_speed);
+      motor_B_forward(motor_speed);
+      delay(sleep_t);
+      printf("%f, Forw, speed %d, Output: %f\n", gyro_reading, motor_speed, Output);
+      Terminal.print(" Forw, speed");
+      Terminal.print(motor_speed);
+    } 
+    else {
+      stop_motors();
+    }
+  }
 }
 
 void bluetooth_input(void* pvParameters ){
