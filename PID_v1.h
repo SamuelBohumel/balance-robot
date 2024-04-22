@@ -8,13 +8,13 @@ class PID
 
   public:
 
-  //Constants used in some of the functions below
-  #define AUTOMATIC	1
-  #define MANUAL	0
-  #define DIRECT  0
-  #define REVERSE  1
-  #define P_ON_M 0
-  #define P_ON_E 1
+    //Constants used in some of the functions below
+    #define AUTOMATIC	1
+    #define MANUAL	0
+    #define DIRECT  0
+    #define REVERSE  1
+    #define P_ON_M 0
+    #define P_ON_E 1
 
   //commonly used functions **************************************************************************
     PID(double*, double*, double*,        // * constructor.  links the PID to the Input, Output, and 
@@ -30,7 +30,8 @@ class PID
                                           //   called every time loop() cycles. ON/OFF and
                                           //   calculation frequency can be set using SetMode
                                           //   SetSampleTime respectively
-
+    void Reinitialize();
+    
     void SetOutputLimits(double, double); // * clamps the output to a specific range. 0-255 by default, but
 										                      //   it's likely the user will want to change this depending on
 										                      //   the application

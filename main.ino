@@ -1,4 +1,6 @@
 //Bluetooth
+#define CUSTOM_SETTINGS
+#define INCLUDE_GAMEPAD_MODULE
 #include <DabbleESP32.h>
 #include "PID_v1.h"
 
@@ -25,7 +27,7 @@ Adafruit_MPU6050 mpu;
 //PID setup
 double Setpoint=0, Input=0, Output=0;
 //Specify the links and initial tuning parameters
-double Kp=2 , Ki=2, Kd=1;
+double Kp=3 , Ki=1.2, Kd=1.2;
 PID myPID(&Input, &Output, &Setpoint, Kp, Ki, Kd, DIRECT);
 //PIDController pid(Kp, Ki,  Kd, 0);
 
@@ -39,7 +41,7 @@ int enb = 32;
 
 // Motor parameters
 int min_speed = 150; // Minimum motor speed
-int max_speed = 230; // Maximum motor speed
+int max_speed = 250; // Maximum motor speed
 
 void keep_balance(void* pvParameters );
 
@@ -151,8 +153,7 @@ void setup() {
   Setpoint = 0;
 
   uint32_t variable = 1000;
-  // Set up two tasks to run independently.
-  // ARFGS: function name, name for humans, the stack size,  Task parameter, priority - higher-better, Task 
+
   xTaskCreate(
   keep_balance
   ,  "Balancing" // A name just for humans
@@ -190,8 +191,9 @@ void keep_balance(void* pvParameters ){
     uint32_t variable = *((uint32_t*)pvParameters);
     int sleep_t = 0;
     float last_y = 0.0;
-    float offset = 0.1; //deviation from perfect water level
+    float offset = 0.0; //deviation from perfect water level
     for(;;){
+
       currentState = digitalRead(BUTTON_PIN);
       if (lastState == HIGH && currentState == LOW)       // button is pressed
         pressedTime = millis();
@@ -207,123 +209,91 @@ void keep_balance(void* pvParameters ){
       
       sensors_event_t a, g, temp;
       mpu.getEvent(&a, &g, &temp);  
+      Dabble.processInput();
       // Compute PID output
-      Input = a.acceleration.y;
+      Input = -abs(a.acceleration.y-offset);
       gyro_reading = a.acceleration.y;
       myPID.Compute();
-      motor_speed = Output;
-      if(0.2 > gyro_reading && gyro_reading > -0.2){
-        //pid.reinitialize();
+      motor_speed = abs(Output);
+      //printf("Input %f Output %f\n", Input, Output);
+      if(action_point > gyro_reading && gyro_reading > -action_point){
+          myPID.Reinitialize();
       }
     }
 }
 
 void drive_motors(void* pvParameters ){
-  int sleep_t = 0;
+  int sleep_time = 0;
+  int speed = 0;
   for(;;){
-      if (motor_speed < min_speed && motor_speed != 0) {
-        sleep_t = round((min_speed / motor_speed) * 10);
-        motor_speed = min_speed;
+    speed = motor_speed;
+      if (speed < min_speed && speed != 0) {
+        sleep_time = round((min_speed / speed)*2);
+        speed = min_speed;
         
-      } else if (motor_speed > max_speed) {
-        motor_speed = max_speed;
-        sleep_t = 0;
+      } else if (speed > max_speed) {
+        speed = max_speed;
+        sleep_time = 10;
       }
       else{
-        sleep_t = 0;
+        sleep_time = 0;
       }
-    if (robot_do_balance && gyro_reading > action_point && gyro_reading < stop_angle) {
-      delay(sleep_t);
-      motor_A_backward(motor_speed);
-      motor_B_backward(motor_speed); 
-      delay(sleep_t);
-      printf("%f, Backw, speed %d, Output: %f\n", gyro_reading, motor_speed, Output);
-      Terminal.print("Backw, speed");
-      Terminal.print(motor_speed);
+    if (robot_do_balance && gyro_reading > action_point-0.4 && gyro_reading < stop_angle) {
+      motor_A_backward(speed+30);
+      motor_B_backward(speed+30); 
+      printf("%f, Backw, speed %d, Output: %f, sleep: %d\n", gyro_reading, speed, Output, sleep_time);
+      //Terminal.print("Backw, speed");
+      //Terminal.print(motor_speed);
     }
     else if (robot_do_balance && gyro_reading < -action_point && gyro_reading > -stop_angle){ 
-      delay(sleep_t);  
-      motor_A_forward(motor_speed);
-      motor_B_forward(motor_speed);
-      delay(sleep_t);
-      printf("%f, Forw, speed %d, Output: %f\n", gyro_reading, motor_speed, Output);
-      Terminal.print(" Forw, speed");
-      Terminal.print(motor_speed);
+      motor_A_forward(speed);
+      motor_B_forward(speed);
+      printf("%f, Forw, speed %d, Output: %f, sleep: %d\n", gyro_reading, speed, Output, sleep_time);
+      //Terminal.print("Forw, speed");
+      //Terminal.print(motor_speed);
     } 
     else {
       stop_motors();
     }
+    //if(-3 <gyro_reading && gyro_reading < 3){
+      delay(10);
+      stop_motors();
+      delay(10);
+    //}
+
   }
 }
 
-void bluetooth_input(void* pvParameters ){
-    int motor_speed = 150;
-    (void) pvParameters;
-    for(;;){
-      Dabble.processInput();             //this function is used to refresh data obtained from smartphone.Hence calling this function is mandatory in order to get data properly from your mobile.
-      if (GamePad.isUpPressed()){
-        Serial.println("Up");
-      }
+void process_bluetooth(){
+  Dabble.processInput();             //this function is used to refresh data obtained from smartphone.Hence calling this function is mandatory in order to get data properly from your mobile.
+  int speed = 160;
+  if (GamePad.isUpPressed()){
+      motor_A_forward(speed);
+      motor_B_forward(speed);
+  }
+  else if (GamePad.isDownPressed()){
+      motor_A_backward(speed);
+      motor_B_backward(speed);     
+  }
 
-      if (GamePad.isDownPressed()){
-        Serial.println("Down");     
-      }
+  else if (GamePad.isLeftPressed()){
+    motor_A_forward(speed);
+    motor_B_backward(speed);    
+  }
 
-      if (GamePad.isLeftPressed()){
-        Serial.println("Left");
-      }
+  else if (GamePad.isRightPressed()){
+      motor_A_backward(speed);
+      motor_B_forward(speed);
+  }
 
-      if (GamePad.isRightPressed()){
+  else if (GamePad.isStartPressed()){
+    Serial.println("Start");
+  }
 
-      }
-
-      if (GamePad.isSquarePressed()){
-        Serial.println("Square");
-      }
-
-      if (GamePad.isCirclePressed()){
-        Serial.println("Circle");
-        
-      }
-
-      if (GamePad.isCrossPressed()){
-
-      }
-
-      if (GamePad.isTrianglePressed()){
-        Serial.println("Triangle");
-      }
-
-      if (GamePad.isStartPressed()){
-        Serial.println("Start");
-      }
-
-      if(GamePad.isSelectPressed()){
-        Serial.println("Select");
-      }
-      //int a = GamePad.getAngle();
-      //int b = GamePad.getRadius();
-
-      float x = GamePad.getXaxisData();
-      float y = GamePad.getYaxisData();
-      float point = 5.0;
-      if (x > point){
-        motor_A_backward(motor_speed);
-        motor_B_forward(motor_speed);
-      }
-      if (x < point){
-        motor_A_forward(motor_speed);
-        motor_B_backward(motor_speed); 
-      }
-      if (y > point){
-        motor_A_forward(motor_speed);
-        motor_B_forward(motor_speed);
-      }
-      if (y < point){
-        motor_A_backward(motor_speed);
-        motor_B_backward(motor_speed);
-      }
-      if(-0.5 < x && x < 0.5 && -0.5 < y && y < 0.5)
-        stop_motors();
-    }
+  else if(GamePad.isSelectPressed()){
+    Serial.println("Select");
+  }
+  else{
+    stop_motors();
+  }
 }
